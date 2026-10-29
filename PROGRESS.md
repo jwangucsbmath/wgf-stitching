@@ -205,6 +205,37 @@ Reading:
 
 Next: run the `coarse` split, which tests the long gaps where physics should matter. Then use several seeds.
 
+## Run records; separate train / eval / plot (2026-10-28)
+Built: `wgf/runs.py`, the one place that saves and loads results. `scripts/demo_split.py` and `scripts/demo_rollout.py` now use it through three commands:
+
+```bash
+.venv/bin/python scripts/demo_split.py train [--epochs 2000] [--split interleaved] [--seed 0] [--loo] [--pooled] [--fix-c-H] ...
+.venv/bin/python scripts/demo_split.py eval runs/<run> [--eval-seed 0]
+.venv/bin/python scripts/demo_split.py plot runs/<run> [--eval <evals folder>]
+.venv/bin/python scripts/show_run.py [runs/<run>]
+```
+
+The same three commands exist for `demo_rollout.py`. `train` makes a new folder, `runs/<YYYYmmdd-HHMMSS>_<name>/`, and never reuses one. `eval` loads the saved data and checkpoints and writes a new `evals/<timestamp>_seed<k>/` folder; it never trains. `plot` reads only `metrics.json` and the training histories; it never trains or evaluates. Missing files, a run of another experiment, an unfinished run, or data whose hash changed each stop with one `error: …` line (exit 1), and `eval` stops before it creates any folder. `show_run.py` lists the runs, or prints one run's whole configuration, provenance, models and evaluations.
+
+What a run folder holds:
+- `config.json` — data settings, split (name and train indices), regimes, N, K, the V_θ architecture, epochs, lr and schedule, λ, full/LOO score, c_H init and whether it is learned, the NLL convention (per snapshot vs pooled), and the data and init seeds with what each one drives. It also records the source commit, whether the tree was dirty, the Python, torch, numpy, scipy and matplotlib versions, the command line, the start and end time, the runtime, the status, and the sha256 of `data.pt`.
+- `source.diff` — written when the tree was dirty: `git diff HEAD` plus untracked files.
+- `data.pt` — every training and test set the run used. `eval` also regenerates them from the seed and records in `eval.json` whether the hash matches.
+- `models/<tag>.pt` — the spec and `state_dict`, with V_θ, X, h, c_H, w, t_grid, and W_θ and c_W when present. The same values are also stored in natural units. `wgf.runs.load_model(path)` rebuilds the model in a fresh process and restores float64.
+- `history/<tag>.json` — the return value of `fit()`, which now also records `lamR` (λR) and `lr` for every epoch, next to loss, NLL, R, h and c_H.
+- `evals/…/eval.json` — eval settings and every eval seed (start resampling and KDE samples, the V_θ rollout, the V\* rollout).
+- `evals/…/predictions.pt` — every predicted cloud.
+- `evals/…/metrics.json` — W1 and W2 for each method at each test time, force errors, potential R², c_H and h. Every method is labelled with its kind (stitching KDE, SDE rollout, OT baseline) and its dynamics (learned, true, none).
+- `evals/…/tables.md`, `*.png` — written by `plot`.
+
+Choices:
+- `runs/` is in `.gitignore`. The checkpoints and data stay local.
+- Resuming training is not supported, so no optimiser, scheduler or RNG state is saved. `fit()` is full batch and draws no random numbers after initialisation, so the init seed and the config reproduce training exactly.
+- `double_well_regimes` passes simulation settings through to `double_well_snapshots`. `build_nn_model` and `train_regime` take `loo`, and `train_regime` also takes the `fit` settings, so the config drives what runs.
+- The other demo scripts are unchanged and still write to `figures/`.
+
+Tests: `tests/test_runs.py`, 9 passing. They cover rebuilding in a fresh process (MLP, LOO with fixed c_H, FixedV, with W), folder collisions and status, the data-hash check, the clear errors, the `lr`/`lamR` history, and an end-to-end `train → eval → plot` that checks eval and plot leave the trained files untouched.
+
 ## Not done
 - Step 7 (interaction network W_θ, CIS data): later, per the plan. `energy.interaction_force` is already in place and tested.
 - `notebooks/00_stitching_from_scratch.ipynb` still calls the old `simulate(..., generator=)` API and will fail at its data cell until it is updated.

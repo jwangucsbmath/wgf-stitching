@@ -4,5 +4,7 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 .DS_Store
+# experiment runs: checkpoints, data, metrics (one folder per run, see wgf/runs.py)
+runs/
 # reference PDFs stay local (third-party papers/book; add your own notes explicitly if wanted)
 *.pdf

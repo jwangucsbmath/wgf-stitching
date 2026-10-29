@@ -51,14 +51,15 @@ def make_regimes(seed=0):
     return {"dense": dense, "terminal": terminal, "trickle": trickle}, test
 
 
-def train_regime(train, epochs, seed=0, K=50, N=100):
+def train_regime(train, epochs, seed=0, K=50, N=100, loo=False, **fit_kw):
+    """fit_kw: lr, lam, scheme, pooled for wgf.train.fit."""
     times = sorted(train)
     gen = torch.Generator().manual_seed(seed)
     t_grid = torch.linspace(times[0], times[-1], K)
     X = ot_straight_lines(train[times[0]], train[times[-1]], t_grid, N, gen)
     torch.manual_seed(seed)
-    model = Stitching(t_grid, X, silverman(train[times[0]]), MLP(1), c_H=1.0, learn_c_H=True)
-    hist = fit(model, train, epochs=epochs, log_every=0)
+    model = Stitching(t_grid, X, silverman(train[times[0]]), MLP(1), c_H=1.0, learn_c_H=True, loo=loo)
+    hist = fit(model, train, epochs=epochs, log_every=0, **fit_kw)
     return model, hist
 
 

@@ -14,6 +14,7 @@ import torch.nn.functional as F
 class MLP(nn.Module):
     def __init__(self, d_in, hidden=(64, 64)):
         super().__init__()
+        self.d_in, self.hidden = d_in, tuple(hidden)  # kept so a checkpoint can rebuild the net
         widths = (d_in,) + tuple(hidden)
         self.layers = nn.ModuleList(nn.Linear(a, b) for a, b in zip(widths[:-1], widths[1:]))
         # no bias in the head: a constant shifts V but never the force, so it would get no gradient

@@ -55,13 +55,13 @@ def split_snapshots(snaps, gen, split="interleaved", train_frac=0.5):
     return train, test
 
 
-def double_well_regimes(gen, split="interleaved", M=2000, trickle_cells=10):
+def double_well_regimes(gen, split="interleaved", M=2000, trickle_cells=10, **sim):
     """The three step-6b regimes on one held-out split. All are scored on the same test times/cells.
       dense    - every training time, all training cells
       terminal - first and last training time only
       trickle  - every training time, `trickle_cells` cells (a fresh subset per time)
-    Returns ({regime: train dict}, test dict)."""
-    train, test = split_snapshots(double_well_snapshots(gen, M=M), gen, split)
+    sim: beta, n_snap, T, dt for double_well_snapshots. Returns ({regime: train dict}, test dict)."""
+    train, test = split_snapshots(double_well_snapshots(gen, M=M, **sim), gen, split)
     times = sorted(train)
     n = len(train[times[0]])
     regimes = {

@@ -37,21 +37,23 @@ def fit(model, data, epochs=2000, lr=5e-3, lam=1.0, scheme="trapezoid", pooled=F
         log_every=100, log=print, track=None):
     """Train in place. track: dict name -> callable(model) -> float, logged every epoch.
 
-    Returns a history dict with per-epoch loss, nll, R, h (mean over dimensions), c_H and the
-    tracked quantities, plus the run time in seconds.
+    Returns a history dict with one value per epoch of: loss, nll, R and lamR (= lam * R) at the
+    parameters before that epoch's step; lr used by that step; h (mean over dimensions), c_H and the
+    tracked quantities after it. Plus the run time in seconds.
     """
     track = dict(track or {})
     opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=0.05 * lr)
-    hist = {k: [] for k in ["loss", "nll", "R", "h", "c_H", *track]}
+    hist = {k: [] for k in ["loss", "nll", "R", "lamR", "lr", "h", "c_H", *track]}
     t0 = time.time()
     for ep in range(epochs):
         opt.zero_grad()
         L, d, R = loss(model, data, lam, scheme, pooled)
         L.backward()
+        lr_now = opt.param_groups[0]["lr"]
         opt.step()
         sched.step()
-        values = [L.item(), d.item(), R.item(), model.h.mean().item(), float(model.c_H)]
+        values = [L.item(), d.item(), R.item(), lam * R.item(), lr_now, model.h.mean().item(), model.c_H.item()]
         values += [fn(model) for fn in track.values()]
         for k, v in zip(hist, values):
             hist[k].append(v)

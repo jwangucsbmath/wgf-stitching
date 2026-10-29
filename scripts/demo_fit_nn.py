@@ -30,12 +30,12 @@ BETA, M0, S0 = 0.5, 2.0, 0.5
 M1, V1 = M0 * math.exp(-1), BETA + (S0**2 - BETA) * math.exp(-2)
 
 
-def build_nn_model(train, seed=0, K=41, N=100):
+def build_nn_model(train, seed=0, K=41, N=100, loo=False):
     gen = torch.Generator().manual_seed(seed)
     t_grid = torch.linspace(0.0, 2.0, K)
     X = ot_straight_lines(train[0.0], train[2.0], t_grid, N, gen)
     torch.manual_seed(seed)  # network init
-    return Stitching(t_grid, X, silverman(train[0.0]), MLP(1), c_H=BETA)
+    return Stitching(t_grid, X, silverman(train[0.0]), MLP(1), c_H=BETA, loo=loo)
 
 
 if __name__ == "__main__":
