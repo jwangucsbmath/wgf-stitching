@@ -53,6 +53,16 @@ def show(path):
     print("\n".join(flat(m["provenance"])))
     if (run.path / "source.diff").exists():
         print("source.diff = uncommitted changes at train time (saved in the run folder)")
+    if m.get("sessions"):
+        print("\n## sessions")
+        for i, se in enumerate(m["sessions"]):
+            pv = se.get("provenance", {})
+            print(f"{i}: {se['command']:7} {se['started']} -> {se.get('ended', '?')}  {se.get('status', 'running?')}  "
+                  f"commit {(pv.get('commit') or '-')[:8]} dirty {pv.get('dirty')}")
+    if m.get("progress"):
+        print("\n## progress")
+        for tag, p in m["progress"].items():
+            print(f"{tag:18} {p['epoch']:6d} / {p['epochs']} epochs  {p['status']}")
     print("\n## models")
     for tag in run.model_tags():
         ck = torch.load(run.path / "models" / f"{tag}.pt", weights_only=True)
@@ -62,6 +72,12 @@ def show(path):
         print(f"{tag:18} K={s['K']} N={s['N']} D={s['D']}  V={V}  W={s['W'] and s['W']['type']}  "
               f"score={'loo' if s['loo'] else 'full'}  c_H={r['c_H'].item():.4f} "
               f"({'learned' if s['learn_c_H'] else 'fixed'})  h={[round(x, 4) for x in r['h'].tolist()]}  epochs={epochs}")
+    cks = sorted((run.path / "checkpoints").glob("*.pt"))
+    if cks:
+        print("\n## training checkpoints (resume continues from these)")
+        for p in cks:
+            st = torch.load(p, weights_only=True)["train_state"]
+            print(f"{p.stem:18} epoch {st['epoch']} / {st['epochs']}")
     print("\n## evaluations")
     for p in run.evals():
         e = read_json(p / Eval.MANIFEST)

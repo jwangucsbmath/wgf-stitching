@@ -232,7 +232,7 @@ What a run folder holds:
 
 Choices:
 - `runs/` is in `.gitignore`. The checkpoints and data stay local.
-- Resuming training is not supported, so no optimiser, scheduler or RNG state is saved. `fit()` is full batch and draws no random numbers after initialisation, so the init seed and the config reproduce training exactly.
+- Resuming training was not supported at this point, so no optimiser, scheduler or RNG state was saved. (Superseded by "Checkpoints and resume" below.)
 - `double_well_regimes` passes simulation settings through to `double_well_snapshots`. `build_nn_model` and `train_regime` take `loo`, and `train_regime` also takes the `fit` settings, so the config drives what runs.
 - The other scripts write their figures to their experiment's `figures/` folder.
 
@@ -257,6 +257,26 @@ Checks:
 - A 2000-epoch `interleaved` run on `dw-001` reproduces the held-out tables above exactly: all W1/W2 means, c_H, and force errors.
 - Short 200-epoch **diagnostic** runs of `interleaved`, `midpoint` and `coarse` all train, evaluate and plot. Their numbers are unconverged and labelled as diagnostics in the run config, the figures and `double_well/README.md`.
 - Tests: `tests/test_datastore.py`, 8 passing. They cover equality with the old data, fine paths matching the snapshots, disjoint splits whose regimes use only training cells, training that is unchanged when every held-out sample is NaN, and `create` never overwriting while corrupt files are detected. `tests/test_runs.py` now runs the double-well `train → eval → plot` end to end on `dw-001`.
+
+## Checkpoints and resume; optional data verification (2026-10-28)
+Built:
+- `wgf/train.fit` can hand out its full training state every `checkpoint_every` epochs, after the last epoch, and at `stop_at`. The state holds the Adam state dict (m, v, step counts), the scheduler state, the completed and planned epochs, the hyperparameters, the history and the global torch/numpy/python RNG states. `fit` can also continue from such a state; it refuses one made with different epochs, lr, λ, scheme or pooling. Each epoch is computed exactly as before, and without these arguments `fit` behaves as it did.
+- `wgf/runs.py`:
+  - every file is written to a temporary name, fsynced, then renamed;
+  - `save_model(path, model, train_state)` writes `checkpoints/<tag>.pt`;
+  - `load_checkpoint` raises `NoTrainingState`, with the reason, for a model-only file;
+  - `Run.train_or_resume` keeps finished models, continues a partial one and starts new ones;
+  - `config.json` records `sessions` (train / resume, with provenance) and per-model `progress`; a stop or Ctrl-C sets the status to `interrupted`, and runtime adds up over sessions;
+  - the CLI gains `resume RUN`, `--checkpoint-every` (default 100), `--stop-after N` and `eval --verify-data`.
+- Both experiment scripts train through `train_or_resume` and have `resume`. `eval --verify-data` re-simulates the data from the recorded seed (`data.py verify` does the same for a dataset) and stops with a list of the differences on a mismatch. By default `eval` only checks the saved data against their hashes. That was already so since the reorganisation; the regeneration on every `eval` was in the older `c1d8680` scripts.
+
+Tests: `tests/test_resume.py`, 9 passing.
+- In process: stop at epoch 7, reload from disk, continue → bitwise identical to 20 uninterrupted epochs.
+- A six-model double-well run stopped after 30 epochs, resumed and stopped again, then resumed to the end, each step in a fresh process. It matches an uninterrupted run with the same planned epochs in parameters, Adam m/v/step, scheduler and every history value; `lr` is compared exactly. A direct check found them bitwise identical. The finished models are not retrained.
+- A run killed with SIGKILL mid-training, then resumed, matches the uninterrupted run.
+- A model-only file is refused with the explanation.
+- An interrupted checkpoint write keeps the previous file and leaves no temporary file.
+- `eval` does not regenerate data unless `--verify-data` is given (double-well and OU), and a mismatch is reported without making an evaluation folder.
 
 ## Not done
 - Step 7 (interaction network W_θ, CIS data): later, per the plan. `energy.interaction_force` is already in place and tested.

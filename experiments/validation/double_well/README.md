@@ -7,8 +7,8 @@ System: $dX = -\nabla V(X)\,dt + \sqrt{2\beta}\,dB$ with $V(x) = \tfrac12(|x|-7)
 | file | what it is |
 |---|---|
 | [`double_well.ipynb`](double_well.ipynb) | Covers how the data were generated, the true potential and force, simulated trajectories, the distributions over time, observation times versus the model's internal grid, the splits, and the comparison of distributions and forces. It loads saved files only. |
-| [`data.py`](data.py) | `list`, `show`, `generate` saved datasets |
-| [`run.py`](run.py) | `train`, `eval`, `plot` on a saved dataset and split |
+| [`data.py`](data.py) | `list`, `show`, `verify`, `generate` saved datasets |
+| [`run.py`](run.py) | `train`, `resume`, `eval`, `plot` on a saved dataset and split |
 | `data/dw-001/` | the saved dataset used everywhere (committed) |
 | `runs/` | run folders (local, git-ignored) |
 | `results/legacy_2026-10-26/` | figures of the earlier results, kept unchanged |
@@ -18,6 +18,7 @@ System: $dX = -\nabla V(X)\,dt + \sqrt{2\beta}\,dB$ with $V(x) = \tfrac12(|x|-7)
 ```bash
 .venv/bin/python experiments/validation/double_well/data.py list
 .venv/bin/python experiments/validation/double_well/data.py show dw-001
+.venv/bin/python experiments/validation/double_well/data.py verify dw-001      # re-simulate and compare; writes nothing
 .venv/bin/python experiments/validation/double_well/data.py generate --seed 1     # only if you want ANOTHER dataset
 ```
 
@@ -42,11 +43,16 @@ There is no validation part, because nothing is tuned or selected on held-out da
 ## Train, evaluate, plot
 
 ```bash
-.venv/bin/python experiments/validation/double_well/run.py train --split interleaved [--dataset dw-001] [--epochs 2000] [--init-seed 0]
-.venv/bin/python experiments/validation/double_well/run.py eval  experiments/validation/double_well/runs/<run> [--eval-seed 0]
-.venv/bin/python experiments/validation/double_well/run.py plot  experiments/validation/double_well/runs/<run>
+.venv/bin/python experiments/validation/double_well/run.py train  --split interleaved [--dataset dw-001] [--epochs 2000] [--init-seed 0] [--checkpoint-every 100]
+.venv/bin/python experiments/validation/double_well/run.py resume experiments/validation/double_well/runs/<run>
+.venv/bin/python experiments/validation/double_well/run.py eval   experiments/validation/double_well/runs/<run> [--eval-seed 0] [--verify-data]
+.venv/bin/python experiments/validation/double_well/run.py plot   experiments/validation/double_well/runs/<run>
 .venv/bin/python scripts/show_run.py experiments/validation/double_well/runs/<run>
 ```
+
+- **`resume`** continues an interrupted run. It keeps finished models, continues the unfinished one from its checkpoint (Adam state, scheduler and history included), and starts the rest. The result is the same as an uninterrupted run with the same planned epochs.
+- **`eval --verify-data`** also re-simulates the dataset from its seed and stops with a list of the differences if it doesn't match.
+- The run-folder layout is described in the [main README](../../../README.md#run-folders).
 
 - **`train`** loads the dataset by ID. It records the dataset ID, split ID and hashes, the full configuration, the seeds (data generation, initialisation; evaluation seeds go in each `eval.json`) and the source commit. It saves one checkpoint and one training history per model: V_θ and the V\* reference, for each regime.
 - **`eval`** loads the checkpoints and the saved dataset, checks the hashes, and writes `metrics.json` with per-time results. It neither trains nor regenerates the data.

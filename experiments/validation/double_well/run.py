@@ -18,9 +18,10 @@ Forces are compared as c_V grad V_theta against grad V* on the test cells and on
 paths are never compared pointwise with the stitching paths: only distributions and forces are.
 
 Commands, from the project root (run folders: wgf/runs.py; datasets: wgf/datastore.py):
-  .venv/bin/python experiments/validation/double_well/run.py train --split interleaved [--dataset dw-001] [--epochs 2000] ...
-  .venv/bin/python experiments/validation/double_well/run.py eval  <run folder> [--eval-seed 0]
-  .venv/bin/python experiments/validation/double_well/run.py plot  <run folder> [--eval <evals folder>]
+  .venv/bin/python experiments/validation/double_well/run.py train  --split interleaved [--dataset dw-001] [--epochs 2000] [--checkpoint-every 100] ...
+  .venv/bin/python experiments/validation/double_well/run.py resume <run folder>
+  .venv/bin/python experiments/validation/double_well/run.py eval   <run folder> [--eval-seed 0] [--verify-data]
+  .venv/bin/python experiments/validation/double_well/run.py plot   <run folder> [--eval <evals folder>]
 """
 
 import sys
@@ -36,7 +37,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(HERE))
-from data import DEFAULT_DATASET, load  # noqa: E402
+from data import DEFAULT_DATASET, load, verify_dataset  # noqa: E402
 from wgf import potentials as P  # noqa: E402
 from wgf.baselines import ot_interpolate_snapshots  # noqa: E402
 from wgf.datasets import SPLITS  # noqa: E402
@@ -54,6 +55,7 @@ torch.set_default_dtype(torch.float64)
 EXPERIMENT = "double_well_validation"
 CATEGORY = "additional validation on simulated data (not a paper experiment)"
 REGIMES = ("dense", "terminal", "trickle")
+PLAN = [(f"{n}_{s}", n, s == "V_star") for n in REGIMES for s in ("V_theta", "V_star")]  # training order
 # every column of the comparison: how it predicts, and with which dynamics
 METHODS = {
     "ot_interp": dict(label="OT interp", kind="OT baseline", dynamics="none",
@@ -127,7 +129,9 @@ def make_config(a, ds):
                   "lr_schedule": "cosine to 0.05 lr", "lam": a.lam, "residual_scheme": "trapezoid",
                   "nll": {"pooled": a.pooled,
                           "convention": "one mean over all cells" if a.pooled
-                          else "mean NLL per snapshot, summed over snapshots"}},
+                          else "mean NLL per snapshot, summed over snapshots"},
+                  "checkpoint_every": a.checkpoint_every,
+                  "models": [tag for tag, _, _ in PLAN]},
         "seeds": {"data_generation": ds.meta["seeds"]["data_generation"], "init": a.init_seed,
                   "init_uses": "Generator(init) for ot_straight_lines, then torch.manual_seed(init) "
                                "before the network is built; fit() draws no random numbers",
@@ -136,10 +140,10 @@ def make_config(a, ds):
     }
 
 
-def train_model(train, cfg, true_V=False):
-    """Fit one model on `train` only: the paths start from its first and last snapshots, the bandwidth
-    from its first snapshot; no held-out cell is passed in."""
-    m, tr, seed = cfg["model"], cfg["train"], cfg["seeds"]["init"]
+def build_model(train, cfg, true_V=False):
+    """A fresh model for `train` only: the paths start from its first and last snapshots, the bandwidth
+    from its first snapshot; no held-out cell is passed in. Seeded, so it is rebuilt identically."""
+    m, seed = cfg["model"], cfg["seeds"]["init"]
     times = sorted(train)
     t_grid = torch.linspace(times[0], times[-1], m["K"])
     X = ot_straight_lines(train[times[0]], train[times[-1]], t_grid, m["N"], torch.Generator().manual_seed(seed))
@@ -152,9 +156,35 @@ def train_model(train, cfg, true_V=False):
         V = MLP(m["V_theta"]["d_in"], tuple(m["V_theta"]["hidden"]))
         model = Stitching(t_grid, X, silverman(train[times[0]]), V, c_H=m["c_H"]["init"],
                           learn_c_H=m["c_H"]["learned"], loo=loo)
-    hist = fit(model, train, epochs=tr["epochs"], lr=tr["lr"], lam=tr["lam"], scheme=tr["residual_scheme"],
-               pooled=tr["nll"]["pooled"], log_every=0)
-    return model, hist
+    return model
+
+
+def fit_settings(cfg):
+    tr = cfg["train"]
+    return dict(lr=tr["lr"], lam=tr["lam"], scheme=tr["residual_scheme"], pooled=tr["nll"]["pooled"])
+
+
+def train_model(train, cfg, true_V=False):
+    """Build and fit one model in memory (no run folder, no checkpoints)."""
+    model = build_model(train, cfg, true_V)
+    return model, fit(model, train, epochs=cfg["train"]["epochs"], log_every=0, **fit_settings(cfg))
+
+
+def train_all(run, ds, budget=None):
+    """Every model of the run in PLAN order: finished ones are kept, a partial one continues from its
+    checkpoint, the rest start from their seeded initialisation. budget: epochs before stopping."""
+    cfg = run.config
+    tr, split = cfg["train"], cfg["dataset"]["split"]
+    for tag, regime, true_V in PLAN:
+        observed = ds.train(split, regime)
+        model, hist, used = run.train_or_resume(tag, lambda: build_model(observed, cfg, true_V), observed,
+                                                tr["epochs"], fit_settings(cfg), tr.get("checkpoint_every", 100),
+                                                budget)
+        budget = None if budget is None else budget - used
+        note = "kept (finished earlier)" if used == 0 else f"{hist['seconds']:5.0f} s"
+        if "resumed_at_epoch" in hist and used:
+            note += f", resumed at epoch {hist['resumed_at_epoch'][-1]}"
+        print(f"{tag:17} {note}   c_H {model.c_H.item():.3f}   h {model.h.item():.3f}", flush=True)
 
 
 def train(args):
@@ -163,14 +193,20 @@ def train(args):
     tag = "diagnostic" if cfg["purpose"].startswith("diagnostic") else "run"
     with Run.create(args.name or f"{tag}-{ds.id}-{args.split}", EXPERIMENT, cfg, args.runs_dir) as run:
         print(f"run {run.path}\ndataset {cfg['dataset']['split_id']}; {cfg['purpose']}")
-        for name in REGIMES:
-            observed = ds.train(args.split, name)
-            for tag, true_V in ((f"{name}_V_theta", False), (f"{name}_V_star", True)):
-                model, hist = train_model(observed, cfg, true_V)
-                run.save_model(tag, model)
-                run.save_history(tag, hist)
-                print(f"{tag:17} {hist['seconds']:5.0f} s   c_H {model.c_H.item():.3f}   h {model.h.item():.3f}",
-                      flush=True)
+        train_all(run, ds, args.stop_after)
+    return run
+
+
+def resume(args):
+    """Continue an interrupted run: loads its saved dataset (hash-checked) and its checkpoints."""
+    run = Run.open(args.run, EXPERIMENT, finished=False)
+    if run.manifest["status"] == "finished":
+        print(f"{run.path} finished training; nothing to resume")
+        return run
+    ds, _ = dataset_of(run)
+    with run.begin_resume():
+        print(f"resuming {run.path}\ndataset {run.config['dataset']['split_id']}")
+        train_all(run, ds, args.stop_after)
     return run
 
 
@@ -218,11 +254,18 @@ def evaluate(args):
     run = Run.open(args.run, EXPERIMENT)
     cfg, s = run.config, args.eval_seed
     ds, split = dataset_of(run)
+    verification = verify_dataset(ds) if args.verify_data else None
+    if verification is not None and not verification["match"]:
+        raise RunMismatch("--verify-data: regenerating the dataset from its recorded seed and settings does not "
+                          f"reproduce the saved {ds.id}:\n  " + "\n  ".join(verification["differences"])
+                          + "\nThe saved data (which the models were trained on) are unchanged; no evaluation was run.")
     regimes = {n: ds.train(split, n) for n in REGIMES}
     test = ds.held_out(split, "test")
     # load every checkpoint first, so a missing one fails before an evals/ folder is made
     models = {n: (run.load_model(f"{n}_V_theta"), run.load_model(f"{n}_V_star")) for n in REGIMES}
-    ecfg = {"dataset": cfg["dataset"]["split_id"], "dataset_hashes_verified": True,
+    ecfg = {"dataset": cfg["dataset"]["split_id"],
+            "data_check": verification or {"regenerated": False,
+                                           "checked": "saved samples and splits against their sha256 hashes"},
             "rollout": {"dt": 1e-2, "scheme": "euler",
                         "start": "training cloud at t0, resampled with replacement to the test-cell count "
                                  "when the sizes differ"},
@@ -366,4 +409,4 @@ def save(fig, ev, name):
 
 
 if __name__ == "__main__":
-    cli(__doc__.splitlines()[0], add_train_args, train, evaluate, plot, runs_dir=HERE / "runs")
+    cli(__doc__.splitlines()[0], add_train_args, train, evaluate, plot, resume, runs_dir=HERE / "runs")

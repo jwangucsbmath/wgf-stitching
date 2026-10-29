@@ -12,8 +12,9 @@ The rollout never sees the learned paths X. Second test, force recovery: relativ
 c_V grad V_theta against grad V*. (The double-well cases moved to experiments/validation/double_well.)
 
 Commands, from the project root (folders and files: wgf/runs.py):
-  .venv/bin/python experiments/validation/ou_quadratic/rollout.py train [--epochs 2000] [--seed 0] [--loo] ...
-  .venv/bin/python experiments/validation/ou_quadratic/rollout.py eval <run folder> [--eval-seed 0]
+  .venv/bin/python experiments/validation/ou_quadratic/rollout.py train [--epochs 2000] [--seed 0] [--loo] [--checkpoint-every 100] ...
+  .venv/bin/python experiments/validation/ou_quadratic/rollout.py resume <run folder>
+  .venv/bin/python experiments/validation/ou_quadratic/rollout.py eval <run folder> [--eval-seed 0] [--verify-data]
   .venv/bin/python experiments/validation/ou_quadratic/rollout.py plot <run folder> [--eval <evals folder>]
 """
 
@@ -36,9 +37,8 @@ from wgf.datasets import quadratic_snapshots  # noqa: E402
 from wgf.kde import sample  # noqa: E402
 from wgf.metrics import w1_1d, w2_1d  # noqa: E402
 from wgf.report import history_figure, md_table, mean, method_notes, write_tables  # noqa: E402
-from wgf.runs import Run, cli  # noqa: E402
+from wgf.runs import Run, RunMismatch, cli  # noqa: E402
 from wgf.sim import simulate  # noqa: E402
-from wgf.train import fit  # noqa: E402
 
 torch.set_default_dtype(torch.float64)
 EXPERIMENT = "ou_quadratic_rollout"
@@ -93,7 +93,8 @@ def make_config(a):
                   "lr_schedule": "cosine to 0.05 lr", "lam": a.lam, "residual_scheme": "trapezoid",
                   "nll": {"pooled": a.pooled,
                           "convention": "one mean over all cells" if a.pooled
-                          else "mean NLL per snapshot, summed over snapshots"}},
+                          else "mean NLL per snapshot, summed over snapshots"},
+                  "checkpoint_every": a.checkpoint_every, "models": [TAG]},
         "seeds": {"data": a.seed if a.data_seed is None else a.data_seed,
                   "init": a.seed if a.init_seed is None else a.init_seed,
                   "data_uses": "train Generator(data), test Generator(data + 1)",
@@ -113,20 +114,46 @@ def make_data(cfg):
     return {"train": {t: Y for t, Y in full.items() if t not in cfg["split"]["held_out_times"]}, "test": quad(s + 1)}
 
 
+def train_all(run, data, budget=None):
+    cfg = run.config
+    tr, m = cfg["train"], cfg["model"]
+    build = lambda: build_nn_model(data["train"], cfg["seeds"]["init"], m["K"], m["N"], m["score"] == "loo")
+    fit_kw = dict(lr=tr["lr"], lam=tr["lam"], scheme=tr["residual_scheme"], pooled=tr["nll"]["pooled"])
+    model, hist, used = run.train_or_resume(TAG, build, data["train"], tr["epochs"], fit_kw,
+                                            tr.get("checkpoint_every", 100), budget)
+    print(f"{TAG}  {hist['seconds']:.0f} s   c_H {model.c_H.item():.3f}", flush=True)
+
+
 def train(args):
     cfg = make_config(args)
     data = make_data(cfg)
-    tr, m = cfg["train"], cfg["model"]
     with Run.create(args.name or "rollout", EXPERIMENT, cfg, args.runs_dir) as run:
         print(f"run {run.path}")
         run.save_data(data)
-        model = build_nn_model(data["train"], cfg["seeds"]["init"], m["K"], m["N"], m["score"] == "loo")
-        hist = fit(model, data["train"], epochs=tr["epochs"], lr=tr["lr"], lam=tr["lam"],
-                   scheme=tr["residual_scheme"], pooled=tr["nll"]["pooled"], log_every=0)
-        run.save_model(TAG, model)
-        run.save_history(TAG, hist)
-        print(f"{TAG}  {hist['seconds']:.0f} s   c_H {model.c_H.item():.3f}", flush=True)
+        train_all(run, data, args.stop_after)
     return run
+
+
+def resume(args):
+    """Continue an interrupted run from its checkpoint, on the run's saved data (hash-checked)."""
+    run = Run.open(args.run, EXPERIMENT, finished=False)
+    if run.manifest["status"] == "finished":
+        print(f"{run.path} finished training; nothing to resume")
+        return run
+    data = run.load_data()
+    with run.begin_resume():
+        train_all(run, data, args.stop_after)
+    return run
+
+
+def verify_data(run, data):
+    """Regenerate the datasets from the config's seeds and compare them with the run's data.pt."""
+    new = make_data(run.config)
+    diffs = [f"{part} t = {t}: values differ" for part in ("train", "test") for t in data[part]
+             if t not in new[part] or not torch.equal(new[part][t], data[part][t])]
+    diffs += [f"{part}: times {sorted(new[part])} regenerated vs {sorted(data[part])} saved"
+              for part in ("train", "test") if sorted(new[part]) != sorted(data[part])]
+    return {"regenerated": True, "match": not diffs, "differences": diffs, "seed": run.config["seeds"]["data"]}
 
 
 # ── eval ────────────────────────────────────────────────────────────────────────────────────────
@@ -162,7 +189,12 @@ def force_error(model, grad_V_true, Y, xs):
 def evaluate(args):
     run = Run.open(args.run, EXPERIMENT)
     cfg, s = run.config, args.eval_seed
-    data = run.load_data()  # the run's own saved copy; nothing is re-simulated
+    data = run.load_data()  # the run's own saved copy, checked against its hash; nothing is re-simulated
+    verification = verify_data(run, data) if args.verify_data else None
+    if verification is not None and not verification["match"]:
+        raise RunMismatch("--verify-data: regenerating the data from the recorded seed does not reproduce the "
+                          "run's data.pt:\n  " + "\n  ".join(verification["differences"])
+                          + "\nThe saved data (which the model was trained on) are unchanged; no evaluation was run.")
     model = run.load_model(TAG)
     train_, test = data["train"], data["test"]
     times = sorted(test)
@@ -170,6 +202,7 @@ def evaluate(args):
     grid = torch.linspace(Yt.min().item(), Yt.max().item(), 401)[:, None]
     beta = cfg["data"]["beta"]
     ecfg = {"rollout": cfg["eval"],
+            "data_check": verification or {"regenerated": False, "checked": "data.pt against its sha256 hash"},
             "kde_samples": "wgf.kde.sample (systematic resampling), one per test cell",
             "metrics": {"W1": "exact 1-D, predicted cloud vs test cells", "W2": "exact 1-D",
                         "force_rel_l2": "||c_V grad V_theta - grad V*|| / ||grad V*||, on all test cells and on a grid"},
@@ -225,4 +258,4 @@ def plot(ev, args):
 
 
 if __name__ == "__main__":
-    cli(__doc__.splitlines()[0], add_train_args, train, evaluate, plot, runs_dir=HERE / "runs")
+    cli(__doc__.splitlines()[0], add_train_args, train, evaluate, plot, resume, runs_dir=HERE / "runs")

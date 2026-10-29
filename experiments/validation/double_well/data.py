@@ -3,10 +3,13 @@
   .venv/bin/python experiments/validation/double_well/data.py list
   .venv/bin/python experiments/validation/double_well/data.py show [dw-001]
   .venv/bin/python experiments/validation/double_well/data.py generate --seed 1 [--M 2000] [--n-snap 20] [--T 4] [--dt 0.01] [--beta 1]
+  .venv/bin/python experiments/validation/double_well/data.py verify [dw-001]
 
-`generate` is the only command that simulates. It always writes a new ID (dw-002, dw-003, ...) and never
-touches an existing dataset. run.py and the notebook only load, dw-001 by default. dw-001 is seed 0 with
-the defaults below: bit-for-bit the data behind the results recorded on 2026-10-26.
+`generate` simulates a new dataset and always writes a new ID (dw-002, dw-003, ...); it never touches an
+existing dataset. `verify` re-simulates a saved dataset from its recorded seed and settings and compares,
+writing nothing (run.py eval --verify-data does the same). run.py and the notebook only load, dw-001 by
+default. dw-001 is seed 0 with the defaults below: bit-for-bit the data behind the results recorded on
+2026-10-26.
 """
 
 import argparse
@@ -31,6 +34,34 @@ PREFIX = "dw"
 def load(dataset_id=DEFAULT_DATASET):
     """The saved dataset; never simulates. Errors if the ID does not exist."""
     return datastore.load(DATA_ROOT, dataset_id)
+
+
+def verify_dataset(ds):
+    """Re-simulate ds from its recorded seed and settings and compare with the saved arrays and splits.
+    Writes nothing. Returns {"regenerated": True, "match": bool, "differences": [...]}."""
+    s = ds.meta["settings"]
+    samples, _, splits = double_well_dataset(
+        ds.meta["seeds"]["data_generation"], s["n_trajectories"], s["observation_times"]["n"],
+        s["observation_times"]["T"], s["integration"]["dt_max"], s["diffusion"]["beta"], s["potential"]["c"],
+        s["train_frac"], s["trickle_cells"], len(ds.paths["traj_ids"]), tuple(ds.splits))
+    saved = {"times": ds.times, "traj_ids": ds.traj_ids, "X": ds.X}
+    diffs = []
+    for k, v in saved.items():
+        new = samples[k]
+        if new.shape != v.shape:
+            diffs.append(f"{k}: shape {tuple(new.shape)} regenerated vs {tuple(v.shape)} saved")
+        elif not torch.equal(new, v):
+            diffs.append(f"{k}: values differ (max |difference| {(new.double() - v.double()).abs().max().item():.3g})")
+    for k in ("times", "X"):
+        new, old = samples["paths"][k], ds.paths[k]
+        if new.shape != old.shape or not torch.equal(new, old):
+            diffs.append(f"paths/{k}: the fine-resolution trajectories differ")
+    for name, sp in ds.splits.items():
+        changed = [k for k in sp if splits.get(name, {}).get(k) != sp[k]]
+        if changed:
+            diffs.append(f"split {name}: {', '.join(changed)} differ")
+    return {"regenerated": True, "match": not diffs, "differences": diffs,
+            "seed": ds.meta["seeds"]["data_generation"], "samples_sha256": ds.meta["samples_sha256"]}
 
 
 def describe(ds):
@@ -61,6 +92,8 @@ if __name__ == "__main__":
     sub.add_parser("list", help="every saved dataset")
     sh = sub.add_parser("show", help="settings, seeds, splits and hashes of one dataset")
     sh.add_argument("id", nargs="?", default=DEFAULT_DATASET)
+    vf = sub.add_parser("verify", help="re-simulate a dataset from its seed and compare (writes nothing)")
+    vf.add_argument("id", nargs="?", default=DEFAULT_DATASET)
     g = sub.add_parser("generate", help="simulate a NEW dataset under a new ID (never overwrites)")
     g.add_argument("--seed", type=int, required=True, help="data-generation seed")
     g.add_argument("--M", type=int, default=2000, help="trajectories")
@@ -80,6 +113,12 @@ if __name__ == "__main__":
                       f"  {m.get('description', '')}")
         elif a.command == "show":
             print(describe(load(a.id)))
+        elif a.command == "verify":
+            rep = verify_dataset(load(a.id))
+            if not rep["match"]:
+                sys.exit(f"error: regenerating {a.id} from seed {rep['seed']} does not reproduce the saved data:\n  "
+                         + "\n  ".join(rep["differences"]))
+            print(f"{a.id}: regenerated from seed {rep['seed']} and identical to the saved samples, paths and splits")
         else:
             if a.n_snap != 20:
                 sys.exit("error: the split presets (wgf.datasets.SPLITS) index 20 observation times; keep --n-snap 20")
