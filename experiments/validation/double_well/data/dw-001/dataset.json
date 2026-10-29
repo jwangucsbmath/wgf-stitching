@@ -1,0 +1,69 @@
+{
+  "id": "dw-001",
+  "created": "2026-10-28T17:35:42-0700",
+  "description": "seed 0, default settings: the data behind the 2026-10-26 double-well results",
+  "settings": {
+    "system": "double_well_1d",
+    "dimension": 1,
+    "paired": true,
+    "potential": {
+      "name": "wgf.potentials.double_well_1d",
+      "formula": "V(x) = (|x| - c)^2 / 2",
+      "c": 7.0,
+      "gradient": "x - c sign(x) (sign(0) = 0)"
+    },
+    "initial_distribution": "N(0, 1)",
+    "diffusion": {
+      "beta": 1.0,
+      "sigma": 1.4142135623730951,
+      "sde": "dX = -grad V(X) dt + sqrt(2 beta) dB"
+    },
+    "integration": {
+      "method": "Euler-Maruyama (wgf.sim.em_step)",
+      "dt_max": 0.01,
+      "rule": "ceil(gap / dt_max) equal sub-steps between consecutive observation times",
+      "step_sizes": [
+        0.009569377990431
+      ]
+    },
+    "n_trajectories": 2000,
+    "observation_times": {
+      "n": 20,
+      "T": 4.0,
+      "rule": "linspace(0, T, n)"
+    },
+    "train_frac": 0.5,
+    "trickle_cells": 10,
+    "fine_paths": "trajectories 0..11 at every integration step (samples.pt['paths'])"
+  },
+  "seeds": {
+    "data_generation": 0,
+    "splits": "no separate seed: the trajectory permutation and trickle subsets continue the data-generation generator after the simulation (as double_well_regimes)"
+  },
+  "samples_sha256": "e1e314ff25851a1b4f4c2a60f7678208aa948d76d757f14a3cfe063da83034b6",
+  "splits_sha256": "8f8e79d06e71c29c262177fc193f28d2f094b1776c8493518cdd068a2caacc13",
+  "provenance": {
+    "commit": "c1d86807a2301ecda4e5c4311fe581c837674a0e",
+    "branch": "main",
+    "dirty": true,
+    "python": "3.9.6",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "packages": {
+      "torch": "2.8.0",
+      "numpy": "2.0.2",
+      "scipy": "1.13.1",
+      "matplotlib": "3.9.4"
+    },
+    "torch_default_dtype": "torch.float64",
+    "torch_threads": 4,
+    "device": "cpu",
+    "argv": [
+      "experiments/validation/double_well/data.py",
+      "generate",
+      "--seed",
+      "0",
+      "--description",
+      "seed 0, default settings: the data behind the 2026-10-26 double-well results"
+    ]
+  }
+}

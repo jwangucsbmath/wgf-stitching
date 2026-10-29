@@ -1,9 +1,10 @@
 """Run records: one folder per experiment run, so no result ever overwrites another.
 
-    runs/<YYYYmmdd-HHMMSS>_<name>/
+    <experiment>/runs/<YYYYmmdd-HHMMSS>_<name>/
         config.json              config, seeds, data hash, source commit, package versions, runtime, status
         source.diff              uncommitted changes against that commit (only when the tree was dirty)
-        data.pt                  every dataset the run used (snapshots, splits, regimes) as tensors
+        data.pt                  the run's data as tensors, when it has no saved dataset (wgf/datastore.py);
+                                 runs on a saved dataset record its ID, split and hashes in config.json instead
         models/<tag>.pt          one trained model: spec + state_dict + readable X, h, c_H, w, t_grid
         history/<tag>.json       fit() history, one value per epoch
         evals/<YYYYmmdd-HHMMSS>_seed<k>/
@@ -356,7 +357,7 @@ def load_model(path):
 # ── command line shared by the experiment scripts ───────────────────────────────────────────────
 
 
-def cli(description, add_train_args, train, evaluate, plot, argv=None):
+def cli(description, add_train_args, train, evaluate, plot, runs_dir=RUNS, argv=None):
     """`<script> train [...] | eval RUN [--eval-seed S] | plot RUN [--eval NAME]`.
 
     train(args) -> Run; evaluate(args) -> Eval; plot(eval, args) -> None.
@@ -365,7 +366,7 @@ def cli(description, add_train_args, train, evaluate, plot, argv=None):
     sub = ap.add_subparsers(dest="command", required=True)
     tr = sub.add_parser("train", help="train and save a new run (writes a new folder under runs/)")
     tr.add_argument("--name", default=None, help="folder name suffix")
-    tr.add_argument("--runs-dir", type=Path, default=RUNS)
+    tr.add_argument("--runs-dir", type=Path, default=runs_dir)
     add_train_args(tr)
     ev = sub.add_parser("eval", help="load a run's checkpoints and evaluate them (never trains)")
     ev.add_argument("run", type=Path)
@@ -375,14 +376,15 @@ def cli(description, add_train_args, train, evaluate, plot, argv=None):
     pl.add_argument("--eval", default=None, help="evals/ folder name (default: the newest)")
     args = ap.parse_args(argv)
 
-    script = Path(sys.argv[0]).name
+    script = Path(sys.argv[0]).resolve()
+    script = script.relative_to(ROOT) if ROOT in script.parents else script
     try:
         if args.command == "train":
             run = train(args)
-            print(f"\nsaved run {run.path}\nnext:  .venv/bin/python scripts/{script} eval {run.path}")
+            print(f"\nsaved run {run.path}\nnext:  .venv/bin/python {script} eval {run.path}")
         elif args.command == "eval":
             ev = evaluate(args)
-            print(f"\nsaved evaluation {ev.path}\nnext:  .venv/bin/python scripts/{script} plot {args.run}")
+            print(f"\nsaved evaluation {ev.path}\nnext:  .venv/bin/python {script} plot {args.run}")
         else:
             plot(open_eval(args.run, args.eval), args)
     except (MissingRunFile, RunMismatch) as e:

@@ -14,8 +14,8 @@ from wgf.metrics import potential_r2, w1_1d, w2_1d
 from wgf.nn import MLP
 from wgf.train import fit
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from demo_fit_nn import build_nn_model  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "experiments" / "validation" / "ou_quadratic"))
+from fit_nn import build_nn_model  # noqa: E402
 
 torch.set_default_dtype(torch.float64)
 

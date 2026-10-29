@@ -1,16 +1,9 @@
-"""[EVAL] Shared helpers for the `plot` commands: they read saved files only (wgf/runs.py layout)."""
+"""[EVAL] Shared helpers for the `plot` commands: they read saved files only (wgf/runs.py layout).
+Call matplotlib.use("Agg") in the script before importing this module when no display is wanted."""
 
-import sys
-from pathlib import Path
-
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from wgf.runs import Run  # noqa: E402
+from .runs import Run
 
 
 def mean(xs):

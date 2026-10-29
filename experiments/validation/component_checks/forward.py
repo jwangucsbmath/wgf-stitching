@@ -7,7 +7,7 @@ Middle: 1-D double-well V = 1/2(|x| - 7)^2, beta = 1, 20 snapshots on [0, 4].
 Right: 2-D wavy valley (paper Fig. 1 / App. E), beta = 0.00625, snapshots {0, 5, 10, 20, 30},
 init N([-3, 1], 0.1^2). Noise uses sigma = sqrt(2 beta) (not the repo's sqrt(2) c_H).
 
-Run from the project root:  .venv/bin/python scripts/demo_forward.py
+Run from the project root:  .venv/bin/python experiments/validation/component_checks/forward.py
 """
 
 import math
@@ -20,13 +20,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from wgf import potentials as P  # noqa: E402
 from wgf.sim import simulate  # noqa: E402
 
 torch.set_default_dtype(torch.float64)
 g = torch.Generator().manual_seed(0)
-out_dir = Path(__file__).resolve().parents[1] / "figures"
+out_dir = Path(__file__).resolve().parent / "figures"
 out_dir.mkdir(exist_ok=True)
 cmap = plt.get_cmap("viridis")
 
@@ -81,7 +81,7 @@ ax2.set(title="Wavy valley, β = 0.00625", xlabel="x₁", ylabel="x₂")
 ax2.legend(markerscale=3, fontsize=8)
 
 fig.tight_layout()
-path = out_dir / "demo_forward.png"
+path = out_dir / "forward.png"
 fig.savefig(path, dpi=130)
 print(f"saved {path}")
 print("double-well: fraction at x > 0 at t=4:", (traj_dw[-1] > 0).double().mean().item())

@@ -4,7 +4,7 @@ Data: V = x^2/2, beta = 0.5, X0 ~ N(2, 0.5^2), unpaired snapshots at {0, 0.5, 1,
 cells; train on {0, 0.5, 1.5, 2}, hold out t = 1. Model: K = 41 on [0, 2], N = 100, c_H = 0.5 fixed.
 Also runs the plan's ablations: lambda = 0, learned c_H, Euler vs trapezoid.
 
-Run from the project root:  .venv/bin/python scripts/demo_fit_quadratic.py [--epochs 2000] [--no-ablations]
+Run from the project root:  .venv/bin/python experiments/validation/ou_quadratic/fit_quadratic.py [--epochs 2000] [--no-ablations]
 """
 
 import argparse
@@ -18,7 +18,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 from wgf.datasets import quadratic_snapshots  # noqa: E402
 from wgf.init import ot_straight_lines  # noqa: E402
@@ -88,6 +89,6 @@ if __name__ == "__main__":
         ax[2].plot(hist["a"]); ax[2].axhline(1, c="k", ls="--", lw=0.8)
         ax[2].set(title="a vs epoch (truth 1)", xlabel="epoch")
         fig.tight_layout()
-        out = ROOT / "figures" / "demo_fit_quadratic.png"
+        out = HERE / "figures" / "fit_quadratic.png"
         fig.savefig(out, dpi=130)
         print(f"saved {out}")

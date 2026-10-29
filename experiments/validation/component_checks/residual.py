@@ -1,7 +1,7 @@
 """Step 4 demo: R_vel vs dt on the exact Gaussian flow (log-log, Euler and trapezoid), the perturbed
 path's closed-form limit, and why SDE sample paths must never go into R_vel.
 
-Run from the project root:  .venv/bin/python scripts/demo_residual.py
+Run from the project root:  .venv/bin/python experiments/validation/component_checks/residual.py
 """
 
 import math
@@ -14,7 +14,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 from wgf.potentials import gaussian_flow_path, grad_quadratic  # noqa: E402
 from wgf.residual import residual  # noqa: E402
@@ -62,6 +63,6 @@ ax[1].plot(Ks, [2 * BETA * (K - 1) for K in Ks], "k--", label="2βD(K−1)")
 ax[1].plot(Ks, rows["perturbed"], "s-", label=f"perturbed path (→ {limit:.4f})")
 ax[1].set(xlabel="K", ylabel="$R_{vel}$", title="Never feed SDE paths into $R_{vel}$", yscale="log"); ax[1].legend()
 fig.tight_layout()
-out = ROOT / "figures" / "demo_residual.png"
+out = HERE / "figures" / "residual.png"
 fig.savefig(out, dpi=130)
 print(f"saved {out}")

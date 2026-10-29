@@ -1,6 +1,6 @@
 """Step 6a demo: same data and pipeline as step 5, with V_a replaced by the network V_theta.
 
-Run from the project root:  .venv/bin/python scripts/demo_fit_nn.py [--epochs 2000]
+Run from the project root:  .venv/bin/python experiments/validation/ou_quadratic/fit_nn.py [--epochs 2000]
 """
 
 import argparse
@@ -14,7 +14,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parents[2]
 sys.path.insert(0, str(ROOT))
 from wgf import potentials as P  # noqa: E402
 from wgf.datasets import quadratic_snapshots  # noqa: E402
@@ -64,6 +65,6 @@ if __name__ == "__main__":
         ax[1].plot(hist["nll"], label="NLL"); ax[1].plot(hist["R"], label="$R_{vel}$")
         ax[1].set(yscale="log", xlabel="epoch", title="loss terms"); ax[1].legend()
         fig.tight_layout()
-        out = ROOT / "figures" / "demo_fit_nn.png"
+        out = HERE / "figures" / "fit_nn.png"
         fig.savefig(out, dpi=130)
         print(f"saved {out}")

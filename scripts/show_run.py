@@ -1,7 +1,7 @@
 """[EVAL] Show saved runs without loading data or training anything.
 
-  .venv/bin/python scripts/show_run.py              list every run under runs/ (or --runs-dir)
-  .venv/bin/python scripts/show_run.py runs/<run>   its full configuration, seeds, provenance, models, evaluations
+  .venv/bin/python scripts/show_run.py              list every run (experiments/**/runs/ and runs/)
+  .venv/bin/python scripts/show_run.py <run folder> its full configuration, seeds, provenance, models, evaluations
 """
 
 import argparse
@@ -13,7 +13,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from wgf.runs import RUNS, Eval, Run, read_json  # noqa: E402
+from wgf.runs import Eval, Run, read_json  # noqa: E402
 
 
 def flat(d, prefix=""):
@@ -26,17 +26,19 @@ def flat(d, prefix=""):
             yield f"{key} = {json.dumps(v) if isinstance(v, (list, dict)) else v}"
 
 
-def list_runs(root):
-    runs = sorted(p for p in Path(root).glob("*") if (p / Run.MANIFEST).exists())
+def list_runs(roots):
+    runs = sorted((p for r in roots for p in r.glob("*") if (p / Run.MANIFEST).exists()), key=lambda p: p.name)
     if not runs:
-        print(f"no runs under {root}")
+        print(f"no runs under {', '.join(map(str, roots))}")
         return
-    print(f"{'run':40} {'experiment':20} {'status':9} {'commit':8} {'dirty':5} {'seconds':>8} evals")
+    print(f"{'run':46} {'experiment':24} {'dataset':20} {'status':9} {'commit':8} {'dirty':5} {'s':>5} evals  folder")
     for p in runs:
         m = read_json(p / Run.MANIFEST)
         pv = m["provenance"]
-        print(f"{p.name:40} {m['experiment']:20} {m['status'][:9]:9} {(pv['commit'] or '-')[:8]:8} "
-              f"{str(pv['dirty']):5} {m.get('seconds', float('nan')):8.0f} {len(Run(p).evals())}")
+        ds = m["config"].get("dataset", {}).get("split_id", "-")
+        print(f"{p.name:46} {m['experiment']:24} {ds:20} {m['status'][:9]:9} {(pv['commit'] or '-')[:8]:8} "
+              f"{str(pv['dirty']):5} {m.get('seconds', float('nan')):5.0f} {len(Run(p).evals()):5}  "
+              f"{p.parent.relative_to(ROOT) if ROOT in p.parents else p.parent}")
 
 
 def show(path):
@@ -70,6 +72,7 @@ def show(path):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("run", nargs="?", type=Path)
-    ap.add_argument("--runs-dir", type=Path, default=RUNS)
+    ap.add_argument("--runs-dir", type=Path, action="append", help="where to look (default: every runs/ folder)")
     a = ap.parse_args()
-    show(a.run) if a.run else list_runs(a.runs_dir)
+    roots = a.runs_dir or [ROOT / "runs", *sorted((ROOT / "experiments").glob("**/runs"))]
+    show(a.run) if a.run else list_runs(roots)

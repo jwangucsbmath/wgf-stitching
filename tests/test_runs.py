@@ -110,37 +110,43 @@ def test_fit_history_records_lr_and_lambda_R():
     assert all(abs(L - (n + lr_)) < 1e-9 for L, n, lr_ in zip(hist["loss"], hist["nll"], hist["lamR"]))
 
 
+RUN_PY = "experiments/validation/double_well/run.py"
+
+
 def _cmd(*args):
-    return subprocess.run([sys.executable, "scripts/demo_split.py", *map(str, args)], cwd=ROOT,
-                          capture_output=True, text=True)
+    return subprocess.run([sys.executable, RUN_PY, *map(str, args)], cwd=ROOT, capture_output=True, text=True)
 
 
 def _snapshot(folder):
     return {p: p.stat().st_mtime_ns for p in folder.rglob("*") if p.is_file()}
 
 
-def test_split_commands_train_eval_plot(tmp_path):
-    r = _cmd("train", "--epochs", 2, "--M", 200, "--N", 10, "--K", 6, "--runs-dir", tmp_path)
+def test_double_well_commands_train_eval_plot(tmp_path):
+    """train on the saved dataset dw-001, then eval and plot in fresh processes from the saved files."""
+    r = _cmd("train", "--split", "midpoint", "--epochs", 2, "--N", 10, "--K", 6, "--runs-dir", tmp_path)
     assert r.returncode == 0, r.stderr
     (run,) = tmp_path.iterdir()
-    cfg = json.loads((run / "config.json").read_text())
-    assert cfg["config"]["train"]["epochs"] == 2 and cfg["config"]["model"]["K"] == 6
-    assert len(list((run / "models").glob("*.pt"))) == 6
+    cfg = json.loads((run / "config.json").read_text())["config"]
+    assert cfg["dataset"]["id"] == "dw-001" and cfg["dataset"]["split_id"] == "dw-001:midpoint"
+    assert cfg["train"]["epochs"] == 2 and cfg["model"]["K"] == 6 and cfg["purpose"].startswith("diagnostic")
+    assert {"data_generation", "init", "evaluation"} <= set(cfg["seeds"])
+    assert len(list((run / "models").glob("*.pt"))) == 6 and not (run / "data.pt").exists()
     trained = _snapshot(run)
 
     r = _cmd("eval", run)
     assert r.returncode == 0, r.stderr
     (ev,) = (run / "evals").iterdir()
     ej = json.loads((ev / "eval.json").read_text())
-    assert ej["status"] == "finished" and ej["config"]["data_regenerated_from_seed_matches"]
+    assert ej["status"] == "finished" and ej["config"]["dataset"] == "dw-001:midpoint"
     metrics = json.loads((ev / "metrics.json").read_text())
+    assert len(metrics["times"]) == 9  # midpoint: 9 held-out times
     assert set(metrics["regimes"]["dense"]["scores"]) == {"ot_interp", "theta_kde", "theta_sde", "true_kde", "true_sde"}
-    assert len(metrics["regimes"]["dense"]["scores"]["theta_sde"]["W2"]) == len(metrics["times"])
+    assert len(metrics["regimes"]["dense"]["scores"]["theta_sde"]["W2"]) == 9
 
-    (ev / "predictions.pt").unlink()  # plot needs metrics.json only
+    (ev / "predictions.pt").unlink()  # plot needs metrics.json and the histories only
     r = _cmd("plot", run)
     assert r.returncode == 0, r.stderr
-    assert (ev / "tables.md").exists() and (ev / "training_history.png").exists()
+    assert all((ev / f).exists() for f in ("tables.md", "force.png", "distributions.png", "training_history.png"))
     after = _snapshot(run)
     assert all(after[p] == t for p, t in trained.items())  # eval and plot left the trained run untouched
     assert len(list(tmp_path.iterdir())) == 1  # and started no new run
@@ -152,3 +158,6 @@ def test_split_commands_train_eval_plot(tmp_path):
     (ev / "metrics.json").unlink()
     r = _cmd("plot", run)
     assert r.returncode == 1 and "metrics.json" in r.stderr
+
+    r = _cmd("train", "--split", "coarse", "--dataset", "dw-999", "--runs-dir", tmp_path / "other")
+    assert r.returncode == 1 and "no dataset 'dw-999'" in r.stderr and not (tmp_path / "other").exists()

@@ -3,6 +3,8 @@
 Following `wgf_implementation_plan.pdf` (steps 1–7). PyTorch, float64 in tests, every random draw from a seeded `torch.Generator`.
 No code from BasisResearch/wasserstein-residuals.
 
+Paths in this log were updated on 2026-10-28, when `scripts/demo_*.py` and `figures/` moved into `experiments/` (see the last section).
+
 Run everything:
 ```bash
 .venv/bin/python -m pytest -q
@@ -13,7 +15,7 @@ Earlier work (before the plan, 2026-10-26): a first end-to-end prototype in `not
 ---
 
 ## Step 1 - SDE simulator (2026-10-26)
-Built: `wgf/sim.py` with `drift`, `em_step(X, dt, beta, grad_V, grad_W=None, w=None, gen=None)`, `heun_step`, and `simulate(X0, t_obs, dt, beta, grad_V, grad_W=None, w=None, paired=True, gen=None, scheme="euler")`, which returns `[(t, X_t)]`. `wgf/potentials.py` holds V (quadratic, double-well, wavy valley) and W (quadratic, Gaussian) with closed-form gradients, plus `autograd_grad`. `scripts/demo_forward.py` produces `figures/demo_forward.png`.
+Built: `wgf/sim.py` with `drift`, `em_step(X, dt, beta, grad_V, grad_W=None, w=None, gen=None)`, `heun_step`, and `simulate(X0, t_obs, dt, beta, grad_V, grad_W=None, w=None, paired=True, gen=None, scheme="euler")`, which returns `[(t, X_t)]`. `wgf/potentials.py` holds V (quadratic, double-well, wavy valley) and W (quadratic, Gaussian) with closed-form gradients, plus `autograd_grad`. `experiments/validation/component_checks/forward.py` produces `experiments/validation/component_checks/figures/forward.png`.
 Tests: `tests/test_sim.py`, 27 passing. The six plan tests:
 1. Noise scale: at β = 0.3 the variance is 0.6 at t = 1, within 5%.
 2. Gaussian flow: halving Δt halves the bias of both the mean and the variance (ratio between 1.6 and 2.5).
@@ -65,7 +67,7 @@ Choices: `force` accepts one slice `(N, D)` or all slices `(K, N, D)` at once. E
 Open: none.
 
 ## Step 4 - The residual (2026-10-26)
-Built: `wgf/residual.py` with `residual(X, t_grid, w, force_fn=None, scheme="trapezoid", g=None)` (Eq. 13 / App. C). `wgf/potentials.gaussian_flow_path` builds the exact (and perturbed) Gaussian-flow paths with their force. `scripts/demo_residual.py` produces `figures/demo_residual.png`: R_vel vs Δt on log–log axes, plus the SDE-path demonstration.
+Built: `wgf/residual.py` with `residual(X, t_grid, w, force_fn=None, scheme="trapezoid", g=None)` (Eq. 13 / App. C). `wgf/potentials.gaussian_flow_path` builds the exact (and perturbed) Gaussian-flow paths with their force. `experiments/validation/component_checks/residual.py` produces `experiments/validation/component_checks/figures/residual.png`: R_vel vs Δt on log–log axes, plus the SDE-path demonstration.
 Tests: `tests/test_residual.py`, 7 passing.
 1. Exact path, exact g:
    - Euler, K = 21 → 41: 5.92e-3 → 1.45e-3 (ratio 4.1; plan 6.1e-3 → 1.5e-3).
@@ -84,7 +86,7 @@ Built:
 - `wgf/model.py`: `QuadraticV` (a, init 0), `Stitching` (X, h via softplus, optional learned c_H, c_V = 1, optional W), `centres_at` (exact on grid nodes), and `moments_at` (KDE mean and variance = particle variance + h²).
 - `wgf/train.py`: `nll` (per snapshot, or `pooled=True`), `loss`, and `fit` (Adam, cosine decay to 0.05×, full batch).
 - `wgf/energy.grad_x`, and `wgf/datasets.py` (`quadratic_snapshots`, `double_well_snapshots`).
-- `scripts/demo_fit_quadratic.py`, which produces `figures/demo_fit_quadratic.png`.
+- `experiments/validation/ou_quadratic/fit_quadratic.py`, which produces `experiments/validation/ou_quadratic/figures/fit_quadratic.png`.
 
 Tests: `tests/test_model.py`, 9 passing, including the plan's done-when targets on a 2000-epoch fit (~10 s).
 Results (seed 0, 2000 epochs, K = 41, N = 100, trapezoid, λ = 1, c_H = 0.5 fixed):
@@ -107,7 +109,7 @@ Open:
 - The held-out mean sits 0.04–0.05 above the truth in all runs, within the target but close to its edge.
 
 ## Step 6 - Swap in the network V_theta (2026-10-26)
-Built: `wgf/nn.py` `MLP` (D → 64 → 64 → 1, SiLU, residual skip, zero-initialised head without bias). `wgf/metrics.py` gains `w2_1d`. Scripts: `scripts/demo_fit_nn.py` (6a) and `scripts/demo_double_well.py` (6b), which produce `figures/demo_fit_nn.png` and `figures/demo_double_well.png`.
+Built: `wgf/nn.py` `MLP` (D → 64 → 64 → 1, SiLU, residual skip, zero-initialised head without bias). `wgf/metrics.py` gains `w2_1d`. Scripts: `experiments/validation/ou_quadratic/fit_nn.py` (6a), which produces `experiments/validation/ou_quadratic/figures/fit_nn.png`, and `scripts/demo_double_well.py` (6b; removed on 2026-10-28, still at commit c1d8680), whose figure is kept as `experiments/validation/double_well/results/legacy_2026-10-26/demo_double_well.png`.
 Tests: `tests/test_nn.py`, 4 passing: zero init and the skip, double backprop through `grad_x`, metrics, and the 6a targets. The full suite is **65 passing** (~50 s).
 
 **6a** (same data as step 5, V_a → V_θ, 2000 epochs, 20 s): potential **R² = 0.992**; held-out t = 1 mean 0.771 (target 0.7358 ± 0.05) and variance 0.473 (0.4662 ± 10%). All targets are met.
@@ -131,7 +133,7 @@ Open (for review; no thresholds set):
 - Next candidates: more epochs (a was still rising in step 5), LOO vs full score, several seeds.
 
 ## Check after step 6 - forward rollout and force recovery (2026-10-26)
-Built: `scripts/demo_rollout.py`, which produces `figures/demo_rollout.png`. Each step-6 model is retrained (same seeds), then V_θ and c_H are frozen.
+Built: `scripts/demo_rollout.py` (now `experiments/validation/ou_quadratic/rollout.py`, 6a only; the 6b cases are covered by `experiments/validation/double_well/run.py`), whose figure is kept as `experiments/validation/double_well/results/legacy_2026-10-26/demo_rollout.png`. Each step-6 model is retrained (same seeds), then V_θ and c_H are frozen.
 
 **Test 1, forward simulation.** The step-1 simulator runs dX = −c_V∇V_θ dt + √(2c_H) dB from the observed t = 0 cells (6a: the 1000 training cells; 6b: the 1000 test cells). At every snapshot time, the result is compared with held-out cells by exact 1-D W1. The rollout never uses the learned paths X.
 - Floor: the true SDE (V\*, β), from the same start with independent noise.
@@ -166,7 +168,7 @@ Built:
 - `wgf/datasets.py`: `SPLITS` (`interleaved` 10/10 is the default; `midpoint` 11/9; `coarse` every 4th + 19), `split_snapshots` (splits by time *and* by trajectory, with both endpoints always in train), and `double_well_regimes`. All three regimes use this one split and are scored on the same 10 test times and the same 1000 test cells.
 - `wgf/baselines.py`: 1-D OT (quantile) interpolation of the two training snapshots on either side of a test time.
 - `wgf/model.FixedV`.
-- `scripts/demo_split.py`, which produces `figures/demo_split_interleaved.png`. The earlier scripts are unchanged.
+- `scripts/demo_split.py` (now `experiments/validation/double_well/run.py`), whose figure is kept as `experiments/validation/double_well/results/legacy_2026-10-26/demo_split_interleaved.png`.
 
 Tests: `tests/test_split.py`, 8 passing. The full suite is **73 passing**.
 
@@ -206,16 +208,16 @@ Reading:
 Next: run the `coarse` split, which tests the long gaps where physics should matter. Then use several seeds.
 
 ## Run records; separate train / eval / plot (2026-10-28)
-Built: `wgf/runs.py`, the one place that saves and loads results. `scripts/demo_split.py` and `scripts/demo_rollout.py` now use it through three commands:
+Built: `wgf/runs.py`, the one place that saves and loads results. `experiments/validation/double_well/run.py` and `experiments/validation/ou_quadratic/rollout.py` (then `scripts/demo_split.py` and `scripts/demo_rollout.py`) use it through three commands:
 
 ```bash
-.venv/bin/python scripts/demo_split.py train [--epochs 2000] [--split interleaved] [--seed 0] [--loo] [--pooled] [--fix-c-H] ...
-.venv/bin/python scripts/demo_split.py eval runs/<run> [--eval-seed 0]
-.venv/bin/python scripts/demo_split.py plot runs/<run> [--eval <evals folder>]
-.venv/bin/python scripts/show_run.py [runs/<run>]
+.venv/bin/python experiments/validation/double_well/run.py train --split interleaved [--dataset dw-001] [--epochs 2000] [--loo] [--pooled] [--fix-c-H] ...
+.venv/bin/python experiments/validation/double_well/run.py eval <run folder> [--eval-seed 0]
+.venv/bin/python experiments/validation/double_well/run.py plot <run folder> [--eval <evals folder>]
+.venv/bin/python scripts/show_run.py [<run folder>]
 ```
 
-The same three commands exist for `demo_rollout.py`. `train` makes a new folder, `runs/<YYYYmmdd-HHMMSS>_<name>/`, and never reuses one. `eval` loads the saved data and checkpoints and writes a new `evals/<timestamp>_seed<k>/` folder; it never trains. `plot` reads only `metrics.json` and the training histories; it never trains or evaluates. Missing files, a run of another experiment, an unfinished run, or data whose hash changed each stop with one `error: …` line (exit 1), and `eval` stops before it creates any folder. `show_run.py` lists the runs, or prints one run's whole configuration, provenance, models and evaluations.
+The same three commands exist for `ou_quadratic/rollout.py`. `train` makes a new folder, `<experiment>/runs/<YYYYmmdd-HHMMSS>_<name>/`, and never reuses one. `eval` loads the saved data and checkpoints and writes a new `evals/<timestamp>_seed<k>/` folder; it never trains. `plot` reads only `metrics.json` and the training histories; it never trains or evaluates. Missing files, a run of another experiment, an unfinished run, or data whose hash changed each stop with one `error: …` line (exit 1), and `eval` stops before it creates any folder. `show_run.py` lists the runs, or prints one run's whole configuration, provenance, models and evaluations.
 
 What a run folder holds:
 - `config.json` — data settings, split (name and train indices), regimes, N, K, the V_θ architecture, epochs, lr and schedule, λ, full/LOO score, c_H init and whether it is learned, the NLL convention (per snapshot vs pooled), and the data and init seeds with what each one drives. It also records the source commit, whether the tree was dirty, the Python, torch, numpy, scipy and matplotlib versions, the command line, the start and end time, the runtime, the status, and the sha256 of `data.pt`.
@@ -232,9 +234,29 @@ Choices:
 - `runs/` is in `.gitignore`. The checkpoints and data stay local.
 - Resuming training is not supported, so no optimiser, scheduler or RNG state is saved. `fit()` is full batch and draws no random numbers after initialisation, so the init seed and the config reproduce training exactly.
 - `double_well_regimes` passes simulation settings through to `double_well_snapshots`. `build_nn_model` and `train_regime` take `loo`, and `train_regime` also takes the `fit` settings, so the config drives what runs.
-- The other demo scripts are unchanged and still write to `figures/`.
+- The other scripts write their figures to their experiment's `figures/` folder.
 
 Tests: `tests/test_runs.py`, 9 passing. They cover rebuilding in a fresh process (MLP, LOO with fixed c_H, FixedV, with W), folder collisions and status, the data-hash check, the clear errors, the `lr`/`lamR` history, and an end-to-end `train → eval → plot` that checks eval and plot leave the trained files untouched.
+
+## Experiments reorganised; saved double-well datasets (2026-10-28)
+Layout: `experiments/paper_reproduction/` is for the paper's §5.1–5.5, none reproduced yet. `experiments/validation/` holds the additional validation on simulated data: `component_checks/` (steps 1 and 4), `ou_quadratic/` (steps 5 and 6a) and `double_well/`. Experiments are grouped by purpose rather than by data source, since the paper also uses simulated data. The shared code stays in `wgf/`, and `scripts/run_plots.py` became `wgf/report.py`. The learning algorithm is unchanged.
+
+Built:
+- `wgf/datastore.py`: saved datasets with IDs. `create` always takes a new `<prefix>-NNN`; `load` checks the sha256 of the samples and of the splits.
+- `wgf/datasets.double_well_dataset`: one seeded simulation that also keeps 12 trajectories at every integration step, followed by every split drawn from the same generator.
+- `experiments/validation/double_well/`:
+  - `data.py` with `list`, `show` and `generate`.
+  - `data/dw-001/`: seed 0, committed.
+  - `run.py` (the old `demo_split.py`): it trains from a dataset ID and split, records the dataset and split IDs and hashes, and evaluates without regenerating data. It also saves force curves, KDE densities, test histograms, right-well fractions and the barrier, so `plot` can draw force and distribution figures from `metrics.json` alone.
+  - `double_well.ipynb`, the notebook.
+  - `README.md`.
+- `ou_quadratic/rollout.py` keeps only the 6a case. `demo_double_well.py` was removed: its "all times" protocol is superseded by the held-out splits, the script is still at commit `c1d8680`, and its figure was moved to `double_well/results/legacy_2026-10-26/`.
+
+Checks:
+- `dw-001` equals `double_well_regimes(Generator(0), split)` bit for bit, for every split, regime and test set.
+- A 2000-epoch `interleaved` run on `dw-001` reproduces the held-out tables above exactly: all W1/W2 means, c_H, and force errors.
+- Short 200-epoch **diagnostic** runs of `interleaved`, `midpoint` and `coarse` all train, evaluate and plot. Their numbers are unconverged and labelled as diagnostics in the run config, the figures and `double_well/README.md`.
+- Tests: `tests/test_datastore.py`, 8 passing. They cover equality with the old data, fine paths matching the snapshots, disjoint splits whose regimes use only training cells, training that is unchanged when every held-out sample is NaN, and `create` never overwriting while corrupt files are detected. `tests/test_runs.py` now runs the double-well `train → eval → plot` end to end on `dw-001`.
 
 ## Not done
 - Step 7 (interaction network W_θ, CIS data): later, per the plan. `energy.interaction_force` is already in place and tested.
